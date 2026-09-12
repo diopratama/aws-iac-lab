@@ -14,6 +14,7 @@ output "ssm_port_forward_command" {
 }
 
 output "curl_test_command" {
-  value       = "curl -k -u elastic:${var.es_password} https://localhost:9200"
+  value       = "curl -u elastic:${var.es_password} http://localhost:9200"
+  sensitive   = true
   description = "cURL validation command (run after establishing SSM port forwarding)"
 }

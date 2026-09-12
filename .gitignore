@@ -1,0 +1,28 @@
+# Local .terraform directories
+**/.terraform/
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Sensitive tfvars files
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Include provider lockfile per HashiCorp best practice
+!**/.terraform.lock.hcl
+
+# OS & IDE temporary files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.tmp

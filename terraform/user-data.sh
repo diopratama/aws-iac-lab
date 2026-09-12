@@ -21,7 +21,7 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update -y
 apt-get install -y docker-ce docker-ce-cli containerd.io
 
-# 3. Launch Elasticsearch 8 container with native TLS and X-Pack Authentication
+# 3. Launch Elasticsearch 8 container with X-Pack Authentication
 # ES_JAVA_OPTS is capped at 512MB heap for Free Tier stability
 docker run -d \
   --name elasticsearch \
@@ -30,6 +30,5 @@ docker run -d \
   -e "discovery.type=single-node" \
   -e "ELASTIC_PASSWORD=${es_password}" \
   -e "xpack.security.enabled=true" \
-  -e "xpack.security.http.ssl.enabled=true" \
   -e "ES_JAVA_OPTS=-Xms512m -Xmx512m" \
   docker.elastic.co/elasticsearch/elasticsearch:8.13.0
