@@ -1,4 +1,4 @@
-# Ambil IP publik Anda untuk whitelist Security Group (Zero Trust principle)
+# Ambil IP publik Anda untuk whitelist Security Group
 data "http" "my_ip" {
   url = "https://checkip.amazonaws.com"
 }
@@ -17,24 +17,34 @@ data "aws_ami" "ubuntu" {
   owners = ["099720109477"] # Canonical
 }
 
-# Key Pair
-resource "aws_key_pair" "es_key" {
-  key_name   = "es-lab-key"
-  public_key = file(var.public_key_path)
+# 1. IAM Role for Systems Manager (SSM) - Zero SSH Ingress Architecture
+resource "aws_iam_role" "ssm_role" {
+  name = "elasticsearch-ssm-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
 }
 
-# Security Group: Hanya membuka port 22 (SSH) dan 9200 (ES HTTPS) ke IP laptop Anda
-resource "aws_security_group" "es_sg" {
-  name        = "elasticsearch-sg"
-  description = "Restrict access to ES and SSH from my local IP only"
+resource "aws_iam_role_policy_attachment" "ssm_attach" {
+  role       = aws_iam_role.ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
 
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["${chomp(data.http.my_ip.response_body)}/32"]
-  }
+resource "aws_iam_instance_profile" "ssm_profile" {
+  name = "elasticsearch-ssm-instance-profile"
+  role = aws_iam_role.ssm_role.name
+}
+
+# 2. Security Group (Port 22 SSH removed; Port 9200 restricted to local IP)
+resource "aws_security_group" "es_sg" {
+  name        = "elasticsearch-sg-secure"
+  description = "Zero-ingress SSH SG leveraging AWS SSM Session Manager"
 
   ingress {
     description = "Elasticsearch HTTPS"
@@ -52,15 +62,15 @@ resource "aws_security_group" "es_sg" {
   }
 }
 
-# EC2 Instance
+# 3. EC2 Instance attached to IAM Instance Profile (No SSH Key Pair required)
 resource "aws_instance" "elasticsearch" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = "t3.micro" # Free Tier eligible di ap-southeast-3
+  ami                  = data.aws_ami.ubuntu.id
+  instance_type        = "t3.micro"
+  iam_instance_profile = aws_iam_instance_profile.ssm_profile.name
 
-  key_name               = aws_key_pair.es_key.key_name
   vpc_security_group_ids = [aws_security_group.es_sg.id]
 
-  user_data = templatefile("${path.module}/user_data.sh", {
+  user_data = templatefile("${path.module}/user-data.sh", {
     es_password = var.es_password
   })
 

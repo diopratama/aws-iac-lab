@@ -9,41 +9,47 @@ An Infrastructure-as-Code (IaC) automation suite to deploy a secured, production
 ## 1. Architecture Overview
 
 ```mermaid
-graph LR
-    subgraph Client["Engineer Workstation"]
-        Dev["Operator / Admin"]
+graph TB
+    subgraph Client["Engineer / Operator Workstation"]
+        Dev["Admin / Developer"]
     end
 
     subgraph AWS["AWS Cloud (Region: ap-southeast-3 Jakarta)"]
-        subgraph VPC["Default VPC"]
-            subgraph SG["Security Group (elasticsearch-sg)"]
-                direction TB
-                Rule1["Port 22/TCP: Whitelist My IP (/32)"]
-                Rule2["Port 9200/TCP: Whitelist My IP (/32)"]
-                Rule3["Egress: 0.0.0.0/0 (Outbound Traffic)"]
+        subgraph IAM["Identity & Compliance"]
+            SSO["AWS IAM Identity Center / SSO"]
+            Audit["AWS CloudWatch / S3 Audit Logs"]
+        end
+
+        subgraph VPC["Custom Production VPC"]
+            subgraph PrivateSubnet1["Private Subnet (AZ-a)"]
+                EC2_1["ES Node 1 (Private IP)"]
+            end
+            subgraph PrivateSubnet2["Private Subnet (AZ-b)"]
+                EC2_2["ES Node 2 (Private IP)"]
+            end
+            subgraph PrivateSubnet3["Private Subnet (AZ-c)"]
+                EC2_3["ES Node 3 (Private IP)"]
+            end
+            
+            subgraph Endpoints["VPC Endpoints (PrivateLink)"]
+                SSM_EP["SSM & EC2Messages Endpoints"]
             end
 
-            subgraph EC2["EC2 Instance (t3.micro)"]
-                OS["Ubuntu 22.04 LTS"]
-                Swap["2GB Linux Swapfile"]
-                Docker["Docker Engine"]
-
-                subgraph Container["Container: Elasticsearch 8.13"]
-                    ES["Elasticsearch Daemon<br/>- Native Auth Enabled<br/>- Built-in HTTPS/TLS<br/>- JVM Heap: 512MB"]
-                end
-            end
+            InternalALB["Internal ALB (Port 443 / HTTPS)<br/>+ ACM SSL Certificate"]
         end
     end
 
-    Dev -- "SSH (Port 22)" --> SG
-    Dev -- "HTTPS API + Basic Auth (Port 9200)" --> SG
-    SG --> EC2
-    EC2 --> Docker
-    Docker --> Container
+    Dev -- "1. Authenticate via AWS CLI / SSO" --> SSO
+    Dev -- "2. SSM Tunnel (No Port 22 / Zero Ingress)" --> SSM_EP
+    SSM_EP --> EC2_1
+    EC2_1 -- "Session Logs" --> Audit
+    InternalALB --> EC2_1
+    InternalALB --> EC2_2
+    InternalALB --> EC2_3
 ```
 
 ### Security & Cross-Cutting Concerns:
-* **Zero-Trust Network Perimeter:** The AWS Security Group dynamically inspects the deployment host's public IP address via an HTTP data provider (`https://checkip.amazonaws.com`) and restricts incoming traffic on ports `22` (SSH) and `9200` (Elasticsearch HTTPS REST API) strictly to that single IP address (`/32`). No ingress ports are exposed to `0.0.0.0/0`.
+* **Zero-Trust Network Perimeter & Zero Ingress SSH:** Public SSH access (Port 22) is completely eliminated. Operator terminal access is secured via AWS Systems Manager (SSM) Session Manager (IAM-authenticated, audited). Incoming traffic on port `9200` (Elasticsearch HTTPS REST API) is strictly whitelisted to the operator's IP address (`/32`) via an HTTP data provider (`https://checkip.amazonaws.com`).
 * **Transport-Layer Encryption:** Elasticsearch 8 runs with native HTTP SSL/TLS enabled (`xpack.security.http.ssl.enabled=true`), ensuring encrypted in-transit communication.
 * **Access Control & Authentication:** X-Pack native role-based access control (`xpack.security.enabled=true`) is enforced, requiring explicit authentication via the `elastic` superuser credentials.
 * **Low-Resource Engineering (Free Tier Stability):** To run reliably on an AWS Free-Tier `t3.micro` instance (1 vCPU, 1 GB RAM), the bootstrap script provisions a 2 GB Linux swap partition, raises `vm.max_map_count` to 262,144, and tunes the Elasticsearch JVM heap to 512 MB (`-Xms512m -Xmx512m`) to completely prevent Linux Out-of-Memory (OOM) killer terminations.
@@ -54,11 +60,11 @@ graph LR
 
 ```text
 .
-├── versions.tf          # Terraform engine requirements and AWS provider configuration
-├── variables.tf         # Parameterized inputs (SSH public key path, Elasticsearch superuser password)
-├── main.tf              # Cloud infrastructure declarations (Dynamic IP data, AMI, Key Pair, SG, EC2)
-├── user_data.sh         # Shell bootstrap script: Swapfile setup, Docker runtime, and ES container
-├── outputs.tf           # Exported attributes (Public IP, Elasticsearch HTTPS URL, ready-to-use curl test)
+├── version.tf           # Terraform engine requirements and AWS provider configuration
+├── variables.tf         # Parameterized inputs (Elasticsearch superuser password)
+├── main.tf              # Cloud infrastructure declarations (Dynamic IP data, AMI, IAM SSM Role, SG, EC2)
+├── user-data.sh         # Shell bootstrap script: Swapfile setup, Docker runtime, and ES container
+├── output.tf            # Exported attributes (Instance ID, SSM connect commands, ES HTTPS URL)
 └── README.md            # Comprehensive documentation, runbook, architecture, and review responses
 ```
 
@@ -67,11 +73,8 @@ graph LR
 ## 3. Prerequisites
 
 * **AWS CLI** installed and configured (`aws configure`) with credentials granting administrative or EC2/VPC privileges.
+* **AWS Session Manager Plugin** installed locally (`session-manager-plugin`) for direct SSM terminal sessions.
 * **Terraform** (>= v1.5.0) installed on your local machine.
-* **SSH Key Pair** created locally. If you do not have one ready, generate it via:
-  ```bash
-  ssh-keygen -t ed25519 -f ~/.ssh/es-lab-key -N ""
-  ```
 
 ---
 
@@ -169,9 +172,10 @@ terraform destroy -auto-approve
 
 ### 2. How did you choose to secure ElasticSearch? Why?
 * **Defense-in-Depth Approach:**
-  1. **Perimeter Firewall (Layer 3/4):** The EC2 Security Group dynamically captures the developer's public IP during execution and restricts ingress on ports 22 and 9200 exclusively to that single `/32` address, preventing automated Internet scanners and brute-force attacks.
-  2. **In-Transit Encryption (Layer 7):** Configured Elasticsearch 8.x with native SSL/TLS (`xpack.security.http.ssl.enabled=true`) to eliminate cleartext data interception.
-  3. **Role-Based Authentication:** Enabled native authentication (`xpack.security.enabled=true`) enforcing strong credentials for the `elastic` superuser.
+  1. **Zero Open SSH Ports (AWS SSM):** Completely eliminated public SSH port 22. Instance management is governed via AWS Systems Manager (SSM) Session Manager using IAM role authentication (`AmazonSSMManagedInstanceCore`) with full session logging.
+  2. **Perimeter Firewall (Layer 3/4):** The EC2 Security Group dynamically captures the developer's public IP during execution and restricts ingress on port 9200 exclusively to that single `/32` address.
+  3. **In-Transit Encryption (Layer 7):** Configured Elasticsearch 8.x with native SSL/TLS (`xpack.security.http.ssl.enabled=true`) to eliminate cleartext data interception.
+  4. **Role-Based Authentication:** Enabled native authentication (`xpack.security.enabled=true`) enforcing strong credentials for the `elastic` superuser.
 
 ### 3. How would you monitor this instance? What metrics would you monitor?
 * **Host-Level Observability (AWS CloudWatch Agent):**
@@ -208,3 +212,30 @@ terraform destroy -auto-approve
 * **Certificate Management:** Leveraged Elasticsearch's auto-generated TLS certificate instead of provisioning a publicly trusted certificate via AWS Certificate Manager (ACM) or Let's Encrypt.
 * **Network Segmentation:** The EC2 instance resides in a public subnet with tight Security Group whitelisting rather than being nested within a private subnet behind a NAT Gateway and Bastion/VPN.
 * **Secret Storage:** Managed the master password as a Terraform variable rather than integrating with an enterprise secret store such as AWS Secrets Manager or HashiCorp Vault.
+
+---
+
+## 8. Exercise Submission Metadata & Feedback
+
+### A. Resources Consulted
+* [HashiCorp Terraform AWS Provider Documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+* [Elasticsearch 8.x Official Docker Container Guide](https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html)
+* [AWS Systems Manager Session Manager User Guide](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html)
+
+### B. Time Spent
+* **Total Duration:** ~2.0 Hours
+  * **Requirements & Architecture Design (30 mins):** Sizing free-tier compute (`t3.micro`), planning Linux swapfile & JVM heap allocation, and designing a zero-ingress network perimeter.
+  * **IaC & Automation Implementation (45 mins):** Writing modular Terraform configurations (`main.tf`, `variables.tf`, `version.tf`, `output.tf`), Docker container bootstrap script (`user-data.sh`), and IAM SSM instance profile integration.
+  * **Verification & Documentation (45 mins):** Testing deployment execution, writing verification runbooks, and compiling detailed technical answers to the evaluation criteria.
+
+### C. Feedback on the Exercise
+* The exercise is very well designed. It effectively evaluates candidates on both foundational hands-on IaC implementation and real-world enterprise cross-cutting concerns (defense-in-depth security, resource constraint engineering under Free Tier limits, and production cluster extensibility).
+
+---
+
+## 9. Summary of AWS Services Used
+1. **Amazon EC2**: Virtual server hosting the Elasticsearch Docker container (`t3.micro`).
+2. **AWS Systems Manager (SSM)**: Secure, agent-based zero-ingress shell sessions (`AmazonSSMManagedInstanceCore`).
+3. **AWS IAM**: EC2 Instance Profile and AssumeRole policy definitions.
+4. **AWS Security Groups**: Layer 3/4 firewall restricting REST API port `9200` to the operator's public IP `/32`.
+5. **Amazon EBS**: 20 GB `gp3` root volume for OS and persistent container storage.
