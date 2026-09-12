@@ -60,12 +60,26 @@ graph TB
 
 ```text
 .
-├── version.tf           # Terraform engine requirements and AWS provider configuration
-├── variables.tf         # Parameterized inputs (Elasticsearch superuser password)
-├── main.tf              # Cloud infrastructure declarations (AMI, IAM SSM Role, Security Group, EC2)
-├── user-data.sh         # Shell bootstrap script: Swapfile setup, Docker runtime, and ES container
-├── output.tf            # Exported attributes (Instance ID, SSM connect & port-forwarding commands)
-└── README.md            # Comprehensive documentation, runbook, architecture, and review responses
+├── modules/                         # Reusable Composite Blueprint Modules
+│   └── elasticsearch/               # Production-ready Elasticsearch module
+│       ├── main.tf                  # Resources (IAM Role for SSM, SG, EC2)
+│       ├── variables.tf             # Parameterized inputs (instance_type, heap, EBS encryption)
+│       ├── outputs.tf               # Exported attributes (instance_id, ssm commands)
+│       └── templates/
+│           └── user-data.sh.tpl     # Dynamic shell bootstrap template
+│
+├── environments/                    # Service-Oriented Deployments
+│   └── dev/                         # Development Environment
+│       └── elasticsearch/           # Dev Service Deployment (t3.micro, 20GB EBS, 512MB heap)
+│           ├── main.tf              # Calls module "../../../modules/elasticsearch"
+│           ├── variables.tf         # Environment input variables
+│           ├── terraform.tfvars     # Dev environment variable values
+│           ├── secrets.auto.tfvars.example # Local secrets template
+│           ├── version.tf           # Engine & Provider version requirements
+│           └── outputs.tf           # Pass-through module outputs
+│
+├── .gitignore                       # Repository ignore rules (ignores secrets.auto.tfvars)
+└── README.md                        # Comprehensive documentation and runbook
 ```
 
 ---
@@ -80,20 +94,20 @@ graph TB
 
 ## 4. Runbook & Deployment Guide
 
-### Step 1: Clone the Repository and Navigate to Workspace
+### Step 1: Clone the Repository and Navigate to Service Directory
 ```bash
 git clone <YOUR_REPOSITORY_URL>
-cd aws-elasticsearch-lab
+cd aws-iac-lab/environments/dev/elasticsearch
 ```
 
-### Step 2: Initialize Terraform Providers
-Download the HashiCorp AWS provider and setup local state mechanisms:
+### Step 2: Initialize Terraform Providers & Modules
+Download the HashiCorp AWS provider and initialize the `elasticsearch` child module:
 ```bash
 terraform init
 ```
 
 ### Step 3: Review Execution Plan
-Inspect the planned infrastructure changes to verify target region (`ap-southeast-3`) and resources:
+Inspect the planned infrastructure changes for the dev deployment:
 ```bash
 terraform plan
 ```

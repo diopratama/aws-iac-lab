@@ -1,4 +1,4 @@
-# Local .terraform directories
+# Local .terraform directories across modules and environments
 **/.terraform/
 
 # .tfstate files
@@ -11,11 +11,15 @@ crash.*.log
 
 # Sensitive tfvars files
 *.tfvars
+*.auto.tfvars
 *.tfvars.json
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# Allow example tfvars templates to be committed
+!*.example
 
 # Include provider lockfile per HashiCorp best practice
 !**/.terraform.lock.hcl

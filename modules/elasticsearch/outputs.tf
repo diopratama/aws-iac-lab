@@ -5,7 +5,7 @@ output "instance_id" {
 
 output "ssm_connect_command" {
   value       = "aws ssm start-session --target ${aws_instance.elasticsearch.id}"
-  description = "CLI command to open interactive shell session via AWS SSM (No SSH key needed)"
+  description = "CLI command to open interactive shell session via AWS SSM"
 }
 
 output "ssm_port_forward_command" {
