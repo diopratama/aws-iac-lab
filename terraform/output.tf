@@ -1,24 +1,19 @@
 output "instance_id" {
   value       = aws_instance.elasticsearch.id
-  description = "EC2 Instance ID for SSM Session Manager connection"
+  description = "EC2 Instance ID for AWS Systems Manager connection"
 }
 
 output "ssm_connect_command" {
   value       = "aws ssm start-session --target ${aws_instance.elasticsearch.id}"
-  description = "Command to connect directly to instance terminal via AWS SSM"
+  description = "CLI command to open interactive shell session via AWS SSM (No SSH key needed)"
 }
 
 output "ssm_port_forward_command" {
   value       = "aws ssm start-session --target ${aws_instance.elasticsearch.id} --document-name AWS-StartPortForwardingSession --parameters '{\"portNumber\":[\"9200\"],\"localPortNumber\":[\"9200\"]}'"
-  description = "Command to securely tunnel port 9200 to your local machine via SSM"
-}
-
-output "elasticsearch_url" {
-  value       = "https://${aws_instance.elasticsearch.public_ip}:9200"
-  description = "Elasticsearch HTTPS endpoint"
+  description = "CLI command to tunnel Elasticsearch port 9200 securely to localhost"
 }
 
 output "curl_test_command" {
-  value       = "curl -k -u elastic:${var.es_password} https://${aws_instance.elasticsearch.public_ip}:9200"
-  description = "Validation command via local terminal"
+  value       = "curl -k -u elastic:${var.es_password} https://localhost:9200"
+  description = "cURL validation command (run after establishing SSM port forwarding)"
 }
