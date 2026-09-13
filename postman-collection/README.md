@@ -35,11 +35,18 @@ A comprehensive Postman Collection (v2.1.0) to test, manage, and query your AWS 
 ## 🚀 How to Import and Run in Postman
 
 ### Step 1: Open Port Forwarding Tunnel
-Make sure your AWS SSM Session Manager tunnel is running on your laptop:
+Make sure your AWS SSM Session Manager tunnel is active on your machine:
 
 ```bash
+# Connect through the Internal Load Balancer (recommended for cluster)
 aws ssm start-session \
-  --target <INSTANCE_ID> \
+  --target <PRIMARY_INSTANCE_ID> \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["<ILB_DNS_NAME>"],"portNumber":["9200"],"localPortNumber":["9200"]}'
+
+# Or direct port forwarding to a single node:
+aws ssm start-session \
+  --target <PRIMARY_INSTANCE_ID> \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["9200"],"localPortNumber":["9200"]}'
 ```

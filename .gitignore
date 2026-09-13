@@ -9,8 +9,8 @@
 crash.log
 crash.*.log
 
-# Sensitive tfvars files
-*.tfvars
+# Sensitive tfvars and auto-generated overrides
+secrets.auto.tfvars
 *.auto.tfvars
 *.tfvars.json
 override.tf

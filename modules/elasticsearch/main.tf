@@ -73,17 +73,20 @@ resource "aws_iam_instance_profile" "ssm_profile" {
 }
 
 # 2. Security Groups
+# ILB SG: Restricts inbound traffic to VPC CIDR only (internal ALB has no public exposure)
 resource "aws_security_group" "ilb_sg" {
   count       = var.enable_ilb ? 1 : 0
   name        = "elasticsearch-ilb-sg-${var.environment}"
   description = "Security Group for Internal Application Load Balancer"
   vpc_id      = data.aws_vpc.selected.id
 
+  # Only allow Elasticsearch REST API traffic from within the VPC
   ingress {
+    description = "Allow ES REST API from VPC CIDR only"
     from_port   = 9200
     to_port     = 9200
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [data.aws_vpc.selected.cidr_block]
   }
 
   egress {
@@ -103,23 +106,26 @@ resource "aws_security_group" "ilb_sg" {
   )
 }
 
+# ES Node SG: Zero public ingress. Only allows cluster-internal and ILB traffic.
 resource "aws_security_group" "es_sg" {
   name        = "elasticsearch-sg-secure-${var.environment}"
   description = "Security group for Elasticsearch cluster nodes"
   vpc_id      = data.aws_vpc.selected.id
 
-  # Allow all node-to-node transport & HTTP traffic within the cluster
+  # Cluster-internal: allows transport (9300) and REST (9200) between nodes
   ingress {
-    from_port = 0
-    to_port   = 0
-    protocol  = "-1"
-    self      = true
+    description = "Intra-cluster communication (transport + REST)"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
   }
 
-  # Allow HTTP traffic from the ILB
+  # ILB → Nodes: allows the load balancer to forward REST API traffic
   dynamic "ingress" {
     for_each = var.enable_ilb ? [1] : []
     content {
+      description     = "REST API traffic from Internal Load Balancer"
       from_port       = 9200
       to_port         = 9200
       protocol        = "tcp"
@@ -127,7 +133,9 @@ resource "aws_security_group" "es_sg" {
     }
   }
 
+  # Outbound: required for Docker image pull, SSM agent, and AWS API calls
   egress {
+    description = "Allow all outbound (Docker pull, SSM, AWS APIs)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -146,14 +154,20 @@ resource "aws_security_group" "es_sg" {
 
 # 3. EC2 Cluster Nodes
 resource "aws_instance" "elasticsearch" {
-  count                = var.node_count
-  ami                  = data.aws_ami.ubuntu.id
-  instance_type        = var.instance_type
+  count         = var.node_count
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = var.instance_type
+
+  # Distribute nodes across available subnets (round-robin) for multi-AZ fault tolerance
   subnet_id            = var.subnet_id != null ? var.subnet_id : element(data.aws_subnets.all.ids, count.index)
   iam_instance_profile = aws_iam_instance_profile.ssm_profile.name
 
-  vpc_security_group_ids = [aws_security_group.es_sg.id]
+  # Enable public IP for outbound internet (Docker pull & SSM agent registration) without NAT Gateway cost.
+  # Security groups block all public ingress ports (zero public attack surface).
+  associate_public_ip_address = true
+  vpc_security_group_ids      = [aws_security_group.es_sg.id]
 
+  # Bootstrap script handles Docker installation, certificates generation, and dynamic peer discovery
   user_data = templatefile("${path.module}/templates/user-data.sh.tpl", {
     node_count   = var.node_count
     node_index   = count.index
@@ -163,10 +177,11 @@ resource "aws_instance" "elasticsearch" {
     es_version   = var.es_version
   })
 
+  # Root volume: 10GB per node fits within the 30GB AWS Free Tier storage allocation
   root_block_device {
     volume_size = var.volume_size
     volume_type = var.volume_type
-    encrypted   = var.volume_encrypted
+    encrypted   = var.volume_encrypted # Encrypt at rest via KMS
     kms_key_id  = var.kms_key_arn
   }
 
@@ -183,6 +198,7 @@ resource "aws_instance" "elasticsearch" {
 }
 
 # 4. Internal Application Load Balancer (ILB)
+# Fronts the cluster nodes inside the VPC for unified REST API access (port 9200)
 resource "aws_lb" "es_ilb" {
   count              = var.enable_ilb ? 1 : 0
   name               = "es-ilb-${var.environment}"
@@ -201,6 +217,7 @@ resource "aws_lb" "es_ilb" {
   )
 }
 
+# Target group for Elasticsearch HTTP REST API (port 9200)
 resource "aws_lb_target_group" "es_tg" {
   count       = var.enable_ilb ? 1 : 0
   name        = "es-tg-${var.environment}"
@@ -209,10 +226,11 @@ resource "aws_lb_target_group" "es_tg" {
   vpc_id      = data.aws_vpc.selected.id
 
   health_check {
-    enabled             = true
-    path                = "/"
-    port                = "9200"
-    protocol            = "HTTP"
+    enabled  = true
+    path     = "/"
+    port     = "9200"
+    protocol = "HTTP"
+    # HTTP 401 indicates ES is running and actively enforcing authentication; 200 for unauthenticated root
     matcher             = "200,401"
     interval            = 30
     timeout             = 5

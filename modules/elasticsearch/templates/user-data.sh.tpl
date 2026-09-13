@@ -36,17 +36,31 @@ if [ "${node_count}" -le 1 ]; then
     -e "discovery.type=single-node" \
     -e "ELASTIC_PASSWORD=${es_password}" \
     -e "xpack.security.enabled=true" \
+    -e "xpack.security.http.ssl.enabled=false" \
     -e "ES_JAVA_OPTS=-Xms${es_heap_size} -Xmx${es_heap_size}" \
     docker.elastic.co/elasticsearch/elasticsearch:${es_version}
 else
   # Multi-Node Cluster Bootstrapping
+  echo "Generating Transport SSL certificate for cluster node..."
+  mkdir -p /etc/elasticsearch/certs
+  chmod 777 /etc/elasticsearch/certs
+
+  # Generate self-signed P12 certificate required by Elasticsearch 8 for node-to-node transport TLS (port 9300)
+  if [ ! -f /etc/elasticsearch/certs/elastic-certificates.p12 ]; then
+    docker run --rm -v /etc/elasticsearch/certs:/certs docker.elastic.co/elasticsearch/elasticsearch:${es_version} \
+      /usr/share/elasticsearch/bin/elasticsearch-certutil cert --silent --self-signed --out /certs/elastic-certificates.p12 --pass ""
+  fi
+  chmod 666 /etc/elasticsearch/certs/elastic-certificates.p12
+
   echo "Polling EC2 tags for cluster peers in cluster $CLUSTER_NAME..."
   
+  # Build initial master node list (e.g., es-node-0,es-node-1,es-node-2)
   INITIAL_MASTERS="es-node-0"
   for i in $(seq 1 $((${node_count} - 1))); do
     INITIAL_MASTERS="$INITIAL_MASTERS,es-node-$i"
   done
 
+  # Dynamically discover peer private IPs by querying EC2 tags via AWS CLI
   PEER_IPS=""
   for try in $(seq 1 30); do
     IPS=$(aws ec2 describe-instances --region "$AWS_REGION" \
@@ -65,18 +79,27 @@ else
     PEER_IPS="$MY_IP"
   fi
 
+  # Launch Elasticsearch with host networking and transport encryption
+  # Note: Host networking is required so nodes bind and publish their real VPC private IP,
+  # avoiding Docker bridge IP masking (172.17.x.x) which breaks multi-AZ node discovery.
   docker run -d \
     --name elasticsearch \
     --restart always \
-    -p 9200:9200 \
-    -p 9300:9300 \
+    --network host \
+    -v /etc/elasticsearch/certs/elastic-certificates.p12:/usr/share/elasticsearch/config/elastic-certificates.p12 \
     -e "cluster.name=$CLUSTER_NAME" \
     -e "node.name=$NODE_NAME" \
     -e "network.host=0.0.0.0" \
+    -e "network.publish_host=$MY_IP" \
     -e "discovery.seed_hosts=$PEER_IPS" \
     -e "cluster.initial_master_nodes=$INITIAL_MASTERS" \
     -e "ELASTIC_PASSWORD=${es_password}" \
     -e "xpack.security.enabled=true" \
+    -e "xpack.security.http.ssl.enabled=false" \
+    -e "xpack.security.transport.ssl.enabled=true" \
+    -e "xpack.security.transport.ssl.verification_mode=none" \
+    -e "xpack.security.transport.ssl.keystore.path=elastic-certificates.p12" \
+    -e "xpack.security.transport.ssl.truststore.path=elastic-certificates.p12" \
     -e "ES_JAVA_OPTS=-Xms${es_heap_size} -Xmx${es_heap_size}" \
     docker.elastic.co/elasticsearch/elasticsearch:${es_version}
 fi

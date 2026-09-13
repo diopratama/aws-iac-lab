@@ -6,7 +6,7 @@ An Infrastructure-as-Code (IaC) automation suite to deploy a production-ready, h
 
 ---
 
-## 1. Architecture Overview
+## 1. Architecture
 
 ```mermaid
 graph TB
@@ -48,118 +48,115 @@ graph TB
     EC2_2 <--"3. Inter-Node Transport (Port 9300)"--> EC2_0
 ```
 
-### Key Architectural Highlights:
-* **Zero-Trust Network Perimeter (Zero Public Ingress):** Security groups have zero open public ingress ports (no port 22 SSH). Administrative access and API port forwarding are securely tunneled via **AWS Systems Manager (SSM) Session Manager** with `AWS-StartPortForwardingSessionToRemoteHost`.
-* **High Availability & Multi-AZ Clustering:** 3 EC2 nodes (`es-node-0`, `es-node-1`, `es-node-2`) distributed across multiple Availability Zones. Shards (Primary & Replica) are automatically rebalanced across nodes to prevent single-point-of-failure data loss.
-* **Internal Load Balancer (ILB):** Fronted by an Internal Application Load Balancer (`es-ilb-dev`) that balances HTTP REST API traffic across all 3 nodes on port 9200 with automatic health checks (`/`).
-* **Dynamic Node Discovery:** Nodes utilize AWS CLI EC2 tag discovery at bootstrap to dynamically discover peer private IPs and initialize `discovery.seed_hosts` and `cluster.initial_master_nodes`.
-* **100% AWS Free Tier Optimized:** 
-  * **Compute**: 3 `t3.micro` instances. When stopped after demos/testing, compute cost is **$0.00**.
-  * **Storage**: Configured with **10 GB EBS volume per node** (3 × 10 GB = 30 GB total), fitting 100% within the 30 GB AWS Free Tier storage limit.
+### Highlights
+* **Zero Public Ingress:** All operator access and local port forwarding happen through AWS SSM Session Manager.
+* **3-Node Multi-AZ Cluster:** Three `t3.micro` EC2 instances distributed across availability zones. Primary and replica shards are distributed automatically to prevent data loss on node failure.
+* **Internal Application Load Balancer:** Provides a stable DNS endpoint on port 9200 inside the VPC and routes traffic to healthy nodes.
+* **Dynamic Node Discovery:** Nodes query active cluster instances via EC2 tags at boot time to build `discovery.seed_hosts` and initialize `cluster.initial_master_nodes`.
+* **Transport Encryption & Auth:** Inter-node communication (port 9300) uses TLS via generated P12 certificates, with `elastic` user authentication enforced.
+* **Free Tier Storage:** EBS root volumes are capped at 10 GB each (3 × 10 GB = 30 GB total), fitting exactly within AWS Free Tier limits.
 
 ---
 
-## 2. Repository Directory Structure
+## 2. Design Decisions & Trade-offs
+
+| Area | Choice | Rationale |
+|---|---|---|
+| **IaC** | Terraform | Declarative, modular, and provides clear execution plans (`terraform plan`) before changing infrastructure. Easier to structure and maintain across environments than imperative scripts. |
+| **ES Packaging** | Official Docker Image | Avoids managing host Java runtimes or repository dependencies on Amazon Linux 2023. Version pinning is straightforward and repeatable. |
+| **Remote Access** | AWS SSM Session Manager | Eliminates the need for public SSH keys, bastion hosts, or exposing port 22. SSM port-forwarding tunnels traffic directly from localhost to the internal ALB. |
+| **Networking Mode** | Docker `--network host` | In default bridge mode, Docker advertised internal bridge IPs (`172.17.x.x`), which broke multi-node discovery across different EC2 instances. Host networking allows Elasticsearch to bind directly to the EC2 private IP. |
+| **Traffic Routing** | Internal ALB | Decouples clients from individual node IPs, distributes REST requests, and automatically removes unhealthy nodes from rotation. |
+| **Transport TLS** | Self-signed P12 Certs | Elasticsearch 8 requires TLS on the transport layer (port 9300) for multi-node clustering. Generated certificates via `elasticsearch-certutil` fulfill security requirements without the complexity of a public CA or ACM. |
+| **Code Structure** | `modules/` + `environments/` | Separates the reusable cluster module from environment-specific configuration (`dev`), making it simple to spin up staging or prod later. |
+
+---
+
+## 3. Project Structure
 
 ```text
 .
-├── modules/                         # Reusable Blueprint Modules
-│   └── elasticsearch/               # Enterprise 3-Node Cluster Module
-│       ├── main.tf                  # Resources (3x EC2, IAM SSM Role, ILB, Target Group, SG)
-│       ├── variables.tf             # Inputs (node_count=3, volume_size=10, enable_ilb=true)
-│       ├── outputs.tf               # Outputs (ilb_dns_name, instance_ids, ssm commands)
+├── modules/
+│   └── elasticsearch/               # Reusable Elasticsearch cluster module
+│       ├── main.tf                  # EC2 instances, IAM role, ALB, Target Group, Security Groups
+│       ├── variables.tf             # Module inputs (node_count, volume_size, enable_ilb)
+│       ├── outputs.tf               # Module outputs (ALB DNS, instance IDs, SSM commands)
 │       └── templates/
-│           └── user-data.sh.tpl     # Bootstrap script with dynamic AWS CLI cluster discovery
+│           └── user-data.sh.tpl     # Cloud-init script for Docker setup & dynamic discovery
 │
-├── environments/                    # Service-Oriented Deployments
-│   └── dev/                         # Development Environment
-│       └── elasticsearch/           # Dev Cluster Service Deployment (3 nodes, 10GB EBS, ILB)
-│           ├── main.tf              # Module invocation
-│           ├── variables.tf         # Parameter definitions
-│           ├── terraform.tfvars     # Environment default values (node_count = 3, volume_size = 10)
-│           ├── secrets.auto.tfvars  # Local secrets file (ignored by Git)
-│           ├── secrets.auto.tfvars.example # Local secrets template
-│           ├── version.tf           # Engine & Provider requirements
-│           └── outputs.tf           # Pass-through module outputs
+├── environments/
+│   └── dev/
+│       └── elasticsearch/           # Dev environment deployment
+│           ├── main.tf              # Module instantiation
+│           ├── variables.tf         # Environment variable declarations
+│           ├── terraform.tfvars     # Non-sensitive defaults (node_count = 3, volume_size = 10)
+│           ├── secrets.auto.tfvars  # Password configuration (git-ignored)
+│           ├── secrets.auto.tfvars.example
+│           ├── version.tf           # Terraform & AWS provider constraints
+│           └── outputs.tf           # Exposed outputs
 │
-├── postman-collection/              # Comprehensive Postman API Suite
-│   ├── Elasticsearch_API_Collection.json # Full v2.1.0 collection (Cluster Health, CRUD, Search)
-│   └── README.md                    # Postman usage guide
+├── postman-collection/
+│   ├── Elasticsearch_API_Collection.json # Health, index CRUD, and search tests
+│   └── README.md
 │
-├── .gitignore                       # Repository ignore rules (ignores secrets.auto.tfvars)
-└── README.md                        # Project documentation and runbook
+├── .gitignore
+└── README.md
 ```
 
 ---
 
-## 3. Prerequisites
+## 4. Prerequisites
 
-* **AWS CLI** installed and configured (`aws configure`).
+* **AWS CLI** configured with appropriate permissions (`aws configure`).
 * **AWS Session Manager Plugin** installed locally (`session-manager-plugin`).
-* **Terraform** (>= v1.5.0) installed on your local machine.
+* **Terraform** >= v1.5.0.
 
 ---
 
-## 4. Runbook & Deployment Guide
+## 5. Quickstart & Deployment
 
-### Step 1: Navigate to Dev Environment Directory
+### 1. Set credentials
+Navigate to the dev environment and create your secrets file:
 ```bash
 cd environments/dev/elasticsearch
-```
-
-### Step 2: Configure Secrets
-Copy the secrets template and define your superuser password:
-```bash
 cp secrets.auto.tfvars.example secrets.auto.tfvars
 ```
-Edit `secrets.auto.tfvars`:
+Set your desired cluster password in `secrets.auto.tfvars`:
 ```hcl
-es_password = "YourSuperSecurePassword123!"
+es_password = "YourSecurePassword123!"
 ```
 
-### Step 3: Initialize Terraform
+### 2. Deploy
 ```bash
 terraform init
-```
-
-### Step 4: Validate and Review Execution Plan
-```bash
-terraform validate
 terraform plan
+terraform apply
 ```
 
-### Step 5: Provision Infrastructure
-```bash
-terraform apply -auto-approve
-```
-
-### Step 6: Wait for Cluster Bootstrapping
-Allow **2 to 3 minutes** for the 3 EC2 instances to complete user-data execution, install Docker Engine, query peer node private IPs via AWS CLI, and join the Elasticsearch cluster.
+> **Note:** Allow **2 to 3 minutes** after `terraform apply` finishes for the EC2 instances to finish running user-data, install Docker, generate certificates, and form the cluster.
 
 ---
 
-## 5. Verification & Testing
+## 6. How to Connect & Verify
 
-### A. Establish SSM Remote Host Port Forwarding to ILB
-Establish a secure SSM tunnel from your local machine to the Internal Load Balancer DNS name:
+Since the cluster has no public endpoints or SSH access, connect via an SSM port-forwarding tunnel to the Internal Load Balancer:
 
+### 1. Open SSM tunnel
 ```bash
 aws ssm start-session \
   --target <PRIMARY_INSTANCE_ID> \
   --document-name AWS-StartPortForwardingSessionToRemoteHost \
   --parameters '{"host":["<ILB_DNS_NAME>"],"portNumber":["9200"],"localPortNumber":["9200"]}'
 ```
+*(Replace `<PRIMARY_INSTANCE_ID>` and `<ILB_DNS_NAME>` with the values from your `terraform output`)*.
 
-*(Note: Replace `<PRIMARY_INSTANCE_ID>` and `<ILB_DNS_NAME>` with the exact values output by `terraform apply`)*.
-
-### B. Verify Cluster Health via cURL
-Run the cURL command against `http://localhost:9200`:
-
+### 2. Verify cluster health
+In a separate terminal, test the connection:
 ```bash
-curl -u elastic:YourSuperSecurePassword123! http://localhost:9200/_cluster/health?pretty
+curl -u elastic:YourSecurePassword123! http://localhost:9200/_cluster/health?pretty
 ```
 
-**Expected Response (`HTTP 200 OK`):**
+Expected response (`status: green`, 3 nodes):
 ```json
 {
   "cluster_name" : "es-cluster-dev",
@@ -167,42 +164,64 @@ curl -u elastic:YourSuperSecurePassword123! http://localhost:9200/_cluster/healt
   "timed_out" : false,
   "number_of_nodes" : 3,
   "number_of_data_nodes" : 3,
-  "active_primary_shards" : 1,
-  "active_shards" : 2
+  "active_primary_shards" : 0,
+  "active_shards" : 0,
+  "active_shards_percent_as_number" : 100.0
 }
 ```
 
-### C. Test Postman API Collection
-Import `postman-collection/Elasticsearch_API_Collection.json` into Postman, set `username` = `elastic` and `password` = `YourSuperSecurePassword123!`, and execute the test suite (Cluster Health, Index Management, Document Indexing, Search Query).
+### 3. Run Postman tests
+Import `postman-collection/Elasticsearch_API_Collection.json` into Postman, set basic auth (`elastic` / your password), and run the requests for document indexing, cluster health, and searching.
 
 ---
 
-## 6. Teardown & Cost Management
+## 7. Cost & Teardown
 
-* **To Stop Cluster Instances (Zero Compute Billing):**
-  When not in use, you can stop all 3 instances via AWS Console or AWS CLI:
+* **Stop instances to pause compute billing:**
   ```bash
   aws ec2 stop-instances --instance-ids <NODE_0_ID> <NODE_1_ID> <NODE_2_ID>
   ```
-  *Compute cost while stopped is **$0.00**.*
-
-* **To Destroy All Infrastructure:**
+* **Destroy everything when finished:**
   ```bash
-  terraform destroy -auto-approve
+  terraform destroy
   ```
+
+### Non-Free Tier Services Disclosure
+While EC2 compute (`t3.micro` up to 750h/month) and EBS storage (3 × 10 GB = 30 GB) fall under the AWS Free Tier, the following services incur small hourly charges while provisioned:
+
+| Service | Why it's used | Approximate Cost |
+|---|---|:---:|
+| **Internal ALB** | Load balances port 9200 across all 3 nodes | ~$0.0225/hour (~$16/mo if left running) |
+| **Public IPv4** (×3) | Required for outbound SSM agent registration & Docker pull (no NAT Gateway) | ~$0.005/hour per IP (~$11/mo total) |
+
+*Running `terraform destroy` tears down all resources, dropping ongoing costs to **$0.00**.*
 
 ---
 
-## 7. Technical Architecture Q&A
+## 8. Resources Consulted
 
-### 1. How does the 3-node cluster bootstrapping work?
-Each EC2 instance executes a custom user-data script during boot that uses the AWS CLI to query active EC2 instances tagged with `Cluster = es-cluster-dev`. It collects all peer private IPs, dynamically configures `discovery.seed_hosts` and `cluster.initial_master_nodes=es-node-0,es-node-1,es-node-2`, and starts Elasticsearch in Docker.
+The solution was built using an AI assistant as an interactive copilot, referencing official Elasticsearch and AWS documentation for configuration standards and troubleshooting:
+* **AI Assistant (Claude / Gemini):** Used as an interactive pair-programmer for initial scaffolding, syntax lookups, and troubleshooting distributed networking (Docker host networking and ALB health checks).
+* [Elasticsearch 8.x Docker Installation](https://www.elastic.co/guide/en/elasticsearch/reference/8.13/docker.html) — Reference for container environment variables and TLS security setup.
+* [Elasticsearch Cluster Formation & Discovery](https://www.elastic.co/guide/en/elasticsearch/reference/8.13/modules-discovery-settings.html) — Reference for `discovery.seed_hosts` and bootstrap discovery.
+* [AWS Systems Manager Documentation](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html) — SSM port forwarding specifications.
+* [Terraform AWS Provider Documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) — Resource syntax for EC2, ALB, and Security Groups.
 
-### 2. How is network security enforced?
-* **Zero Public Ingress:** No public SSH (port 22) or open HTTP ports. Access is restricted to IAM-authenticated AWS SSM Session Manager tunnels.
-* **Internal Load Balancer (ILB):** Fronts the cluster inside the VPC, distributing API traffic to healthy instances on port 9200.
-* **Inter-Node Transport Security:** Security group rule allows full inter-node communication on ports 9200 and 9300 exclusively between instances belonging to the cluster security group (`self = true`).
+---
 
-### 3. How is cost minimized on AWS Free Tier?
-* Root EBS volume size is set to **10 GB per node** (3 × 10 GB = 30 GB total), keeping storage 100% within the AWS Free Tier limit.
-* Instances are configured to use `t3.micro`. When stopped between demo sessions, compute cost drops to **$0.00**.
+## 9. Time Spent & Retrospective
+
+**Time spent:** Approximately **5.5 hours** total across two working sessions:
+
+* **Core Single-Node Solution (~2.0 – 2.5 hours):**
+  * Modular Terraform setup (`modules/` and `environments/dev`), IAM roles, and security groups.
+  * Dockerized Elasticsearch configuration with credentials and TLS generation.
+  * Locking down security groups with zero public ingress and setting up SSM access.
+  * Verification tests and building the Postman collection.
+* **Bonus 3-Node Cluster & ALB (~3.0 hours):**
+  * Multi-AZ cluster layout and dynamic peer discovery bootstrapping via EC2 tags.
+  * Internal Application Load Balancer setup and target group health check configuration.
+  * Troubleshooting distributed discovery: diagnosed that Docker bridge networking masked host IPs with `172.17.x.x`, resolved by switching to `--network host` and setting `network.publish_host`.
+  * Debugging ALB 502 Bad Gateway: resolved by disabling HTTP SSL while keeping transport TLS active.
+  * Documentation, architecture diagrams, and cost breakdown.
+
