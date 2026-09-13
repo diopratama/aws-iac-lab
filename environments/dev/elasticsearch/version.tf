@@ -1,3 +1,4 @@
+# Terraform engine and provider requirements
 terraform {
   required_version = ">= 1.5.0"
   required_providers {
@@ -8,6 +9,7 @@ terraform {
   }
 }
 
+# AWS Provider configured with target deployment region
 provider "aws" {
   region = var.aws_region
 }
