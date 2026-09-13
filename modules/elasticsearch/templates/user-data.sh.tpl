@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# 1. Configure Linux Swapfile (Critical for 1GB RAM Free Tier instances to prevent OOM)
+# 1. Configure Linux Swapfile (Prevents Out-Of-Memory terminations)
 fallocate -l 2G /swapfile
 chmod 600 /swapfile
 mkswap /swapfile
@@ -21,8 +21,7 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update -y
 apt-get install -y docker-ce docker-ce-cli containerd.io
 
-# 3. Launch Elasticsearch 8 container with X-Pack Authentication
-# ES_JAVA_OPTS is capped at 512MB heap for Free Tier stability
+# 3. Launch Elasticsearch container with X-Pack Authentication
 docker run -d \
   --name elasticsearch \
   --restart always \
@@ -30,5 +29,5 @@ docker run -d \
   -e "discovery.type=single-node" \
   -e "ELASTIC_PASSWORD=${es_password}" \
   -e "xpack.security.enabled=true" \
-  -e "ES_JAVA_OPTS=-Xms512m -Xmx512m" \
-  docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+  -e "ES_JAVA_OPTS=-Xms${es_heap_size} -Xmx${es_heap_size}" \
+  docker.elastic.co/elasticsearch/elasticsearch:${es_version}

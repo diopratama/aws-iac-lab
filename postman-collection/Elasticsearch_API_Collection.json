@@ -1,0 +1,450 @@
+{
+	"info": {
+		"_postman_id": "e8f7a6b5-1234-4567-89ab-cdef01234567",
+		"name": "Elasticsearch 8 API Suite",
+		"description": "Comprehensive Postman collection for testing Elasticsearch 8 REST API (Cluster Health, Index Management, Document CRUD, and Search Aggregations).",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "basic",
+		"basic": [
+			{
+				"key": "username",
+				"value": "{{username}}",
+				"type": "string"
+			},
+			{
+				"key": "password",
+				"value": "{{password}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:9200",
+			"type": "string"
+		},
+		{
+			"key": "username",
+			"value": "elastic",
+			"type": "string"
+		},
+		{
+			"key": "password",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "01. Cluster Health & Status",
+			"item": [
+				{
+					"name": "1.1 Root Info & Version",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								""
+							]
+						},
+						"description": "Returns cluster name, Elasticsearch version info, and tagline."
+					},
+					"response": []
+				},
+				{
+					"name": "1.2 Cluster Health Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/_cluster/health?pretty=true",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"_cluster",
+								"health"
+							],
+							"query": [
+								{
+									"key": "pretty",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Returns cluster health status (green, yellow, red) and shard statistics."
+					},
+					"response": []
+				},
+				{
+					"name": "1.3 Cluster Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/_cluster/stats?pretty=true",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"_cluster",
+								"stats"
+							],
+							"query": [
+								{
+									"key": "pretty",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Returns cluster memory, JVM, and node storage statistics."
+					},
+					"response": []
+				},
+				{
+					"name": "1.4 Nodes Info & Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/_nodes/stats?pretty=true",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"_nodes",
+								"stats"
+							],
+							"query": [
+								{
+									"key": "pretty",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Returns detailed metrics per node (CPU, Memory, JVM, Disk I/O)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "02. Index Management",
+			"item": [
+				{
+					"name": "2.1 Create Index with Mappings & Settings",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"settings\": {\n    \"number_of_shards\": 1,\n    \"number_of_replicas\": 0\n  },\n  \"mappings\": {\n    \"properties\": {\n      \"service\": { \"type\": \"keyword\" },\n      \"status\": { \"type\": \"keyword\" },\n      \"latency_ms\": { \"type\": \"integer\" },\n      \"timestamp\": { \"type\": \"date\" },\n      \"message\": { \"type\": \"text\" }\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/app-logs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs"
+							]
+						},
+						"description": "Creates a new index named 'app-logs' with explicit mappings and single-shard settings."
+					},
+					"response": []
+				},
+				{
+					"name": "2.2 Get Index Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/app-logs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs"
+							]
+						},
+						"description": "Retrieves configuration, settings, and mappings of 'app-logs' index."
+					},
+					"response": []
+				},
+				{
+					"name": "2.3 Get Index Mappings",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/app-logs/_mapping",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs",
+								"_mapping"
+							]
+						},
+						"description": "Retrieves field type definitions for 'app-logs' index."
+					},
+					"response": []
+				},
+				{
+					"name": "2.4 Delete Index",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/app-logs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs"
+							]
+						},
+						"description": "Deletes the 'app-logs' index and all its associated data."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "03. Document Operations (CRUD)",
+			"item": [
+				{
+					"name": "3.1 Index Document (Create / Upsert)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"service\": \"payment-gateway\",\n  \"status\": \"completed\",\n  \"latency_ms\": 78,\n  \"timestamp\": \"2026-09-13T10:00:00Z\",\n  \"message\": \"Transaction completed successfully\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/app-logs/_doc/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs",
+								"_doc",
+								"1"
+							]
+						},
+						"description": "Indexes a new JSON document into 'app-logs' with ID 1."
+					},
+					"response": []
+				},
+				{
+					"name": "3.2 Get Document by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/app-logs/_doc/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs",
+								"_doc",
+								"1"
+							]
+						},
+						"description": "Fetches document with ID 1 from 'app-logs' index."
+					},
+					"response": []
+				},
+				{
+					"name": "3.3 Partial Update Document",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"doc\": {\n    \"status\": \"processed\",\n    \"retry_count\": 0\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/app-logs/_update/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs",
+								"_update",
+								"1"
+							]
+						},
+						"description": "Updates specific fields of document ID 1."
+					},
+					"response": []
+				},
+				{
+					"name": "3.4 Delete Document by ID",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/app-logs/_doc/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs",
+								"_doc",
+								"1"
+							]
+						},
+						"description": "Deletes document with ID 1 from 'app-logs' index."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "04. Search & Aggregations",
+			"item": [
+				{
+					"name": "4.1 Search All Documents",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/app-logs/_search?pretty=true",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs",
+								"_search"
+							],
+							"query": [
+								{
+									"key": "pretty",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Performs a match_all search query across 'app-logs' index."
+					},
+					"response": []
+				},
+				{
+					"name": "4.2 Term Query Search",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"query\": {\n    \"term\": {\n      \"service\": \"payment-gateway\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/app-logs/_search",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs",
+								"_search"
+							]
+						},
+						"description": "Searches for documents matching exact term 'payment-gateway'."
+					},
+					"response": []
+				},
+				{
+					"name": "4.3 Range Query Search",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"query\": {\n    \"range\": {\n      \"latency_ms\": {\n        \"gte\": 50,\n        \"lte\": 200\n      }\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/app-logs/_search",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs",
+								"_search"
+							]
+						},
+						"description": "Filters documents where latency_ms is between 50 and 200."
+					},
+					"response": []
+				},
+				{
+					"name": "4.4 Metrics Aggregation (Average Latency & Status Grouping)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"size\": 0,\n  \"aggs\": {\n    \"by_status\": {\n      \"terms\": {\n        \"field\": \"status\"\n      }\n    },\n    \"avg_latency\": {\n      \"avg\": {\n        \"field\": \"latency_ms\"\n      }\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/app-logs/_search",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"app-logs",
+								"_search"
+							]
+						},
+						"description": "Computes average latency and groups document counts by status field."
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
