@@ -4,6 +4,12 @@ variable "environment" {
   description = "Target deployment environment (e.g. dev, staging, prod)"
 }
 
+variable "node_count" {
+  type        = number
+  default     = 3
+  description = "Number of Elasticsearch EC2 nodes to deploy in the cluster"
+}
+
 variable "instance_type" {
   type        = string
   default     = "t3.micro"
@@ -12,8 +18,8 @@ variable "instance_type" {
 
 variable "volume_size" {
   type        = number
-  default     = 20
-  description = "Size of EBS root volume in GB"
+  default     = 10
+  description = "Size of EBS root volume in GB per node"
 }
 
 variable "volume_type" {
@@ -52,6 +58,12 @@ variable "es_password" {
   description = "Master password for elastic superuser account"
 }
 
+variable "enable_ilb" {
+  type        = bool
+  default     = true
+  description = "Enable creation of Internal Load Balancer (ILB) in front of cluster nodes"
+}
+
 variable "vpc_id" {
   type        = string
   default     = null
@@ -62,6 +74,12 @@ variable "subnet_id" {
   type        = string
   default     = null
   description = "Target Subnet ID for EC2 instance placement (optional)"
+}
+
+variable "subnet_ids" {
+  type        = list(string)
+  default     = null
+  description = "List of Subnet IDs for Load Balancer placement across multiple AZs"
 }
 
 variable "tags" {
