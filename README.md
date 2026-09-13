@@ -175,7 +175,41 @@ Import `postman-collection/Elasticsearch_API_Collection.json` into Postman, set 
 
 ---
 
-## 7. Cost & Teardown
+## 7. Verification Evidence & Screenshots
+
+### 1. Terraform Provisioning & Outputs
+Successful execution of `terraform apply` displaying provisioned infrastructure outputs, including the Internal Load Balancer DNS name, EC2 instance IDs, and SSM port-forwarding commands:
+
+![Terraform Apply Output](assets/screenshots/01-terraform-apply-output.png)
+
+### 2. AWS Management Console — Multi-AZ EC2 Instances
+All 3 Elasticsearch cluster nodes running on `t3.micro` instances distributed across three distinct Availability Zones (`ap-southeast-3a`, `ap-southeast-3b`, `ap-southeast-3c`) with all status checks passing:
+
+![AWS EC2 Multi-AZ Instances](assets/screenshots/02-aws-ec2-multi-az-instances.png)
+
+### 3. Cluster Health Status (`green`)
+Execution of `GET /_cluster/health?pretty=true` via the SSM port-forwarding tunnel to the Internal Load Balancer, confirming `status: green` with all 3 nodes joined:
+
+![Cluster Health Status](assets/screenshots/03-postman-cluster-health-green.png)
+
+### 4. Cluster Node Topology & Stats
+Execution of `GET /_nodes/stats?pretty=true` showing all 3 nodes active with transport addresses on port 9300:
+
+![Cluster Nodes Stats](assets/screenshots/04-postman-nodes-stats.png)
+
+### 5. Document Indexing & CRUD Verification
+Execution of `POST /app-logs/_doc/1` successfully indexing a log document into the cluster:
+
+![Document Indexing](assets/screenshots/05-postman-document-indexing.png)
+
+### 6. Document Retrieval Verification (GET)
+Execution of `GET /app-logs/_doc/1` successfully retrieving the indexed log document (`found: true`, `HTTP 200 OK`):
+
+![Document Retrieval](assets/screenshots/06-postman-document-retrieval.png)
+
+---
+
+## 8. Cost & Teardown
 
 * **Stop instances to pause compute billing:**
   ```bash
@@ -198,7 +232,7 @@ While EC2 compute (`t3.micro` up to 750h/month) and EBS storage (3 × 10 GB = 30
 
 ---
 
-## 8. Resources Consulted
+## 9. Resources Consulted
 
 The solution was built using an AI assistant as an interactive copilot, referencing official Elasticsearch and AWS documentation for configuration standards and troubleshooting:
 * **AI Assistant (Claude / Gemini):** Used as an interactive pair-programmer for initial scaffolding, syntax lookups, and troubleshooting distributed networking (Docker host networking and ALB health checks).
@@ -209,7 +243,7 @@ The solution was built using an AI assistant as an interactive copilot, referenc
 
 ---
 
-## 9. Time Spent & Retrospective
+## 10. Time Spent & Retrospective
 
 **Time spent:** Approximately **5.5 hours** total across two working sessions:
 
