@@ -445,6 +445,149 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "05. Performance & Resource Monitoring (JVM & Disk)",
+			"item": [
+				{
+					"name": "5.1 Node Memory & JVM Heap % (_cat/nodes)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/_cat/nodes?v=true&h=name,ip,heap.percent,heap.current,heap.max,ram.percent,cpu",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"_cat",
+								"nodes"
+							],
+							"query": [
+								{
+									"key": "v",
+									"value": "true"
+								},
+								{
+									"key": "h",
+									"value": "name,ip,heap.percent,heap.current,heap.max,ram.percent,cpu"
+								}
+							]
+						},
+						"description": "Tabular view of JVM Heap Usage %, current heap, max heap (512MB), host RAM %, and CPU utilization per node."
+					},
+					"response": []
+				},
+				{
+					"name": "5.2 JVM Garbage Collection & Memory Stats (_nodes/stats/jvm)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/_nodes/stats/jvm?pretty=true",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"_nodes",
+								"stats",
+								"jvm"
+							],
+							"query": [
+								{
+									"key": "pretty",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Detailed JVM metrics including Heap memory usage in bytes, and GC collectors young & old collection count and duration (pause time in millis) to monitor Stop-the-World pauses."
+					},
+					"response": []
+				},
+				{
+					"name": "5.3 Disk Allocation per Node (_cat/allocation)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/_cat/allocation?v=true&h=node,shards,disk.indices,disk.used,disk.avail,disk.total,disk.percent",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"_cat",
+								"allocation"
+							],
+							"query": [
+								{
+									"key": "v",
+									"value": "true"
+								},
+								{
+									"key": "h",
+									"value": "node,shards,disk.indices,disk.used,disk.avail,disk.total,disk.percent"
+								}
+							]
+						},
+						"description": "Disk utilization per node to verify usage against low (85%), high (90%), and flood-stage (95%) watermarks."
+					},
+					"response": []
+				},
+				{
+					"name": "5.4 Cluster Disk Watermark Settings (_cluster/settings)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/_cluster/settings?include_defaults=true&filter_path=*.cluster.routing.allocation.disk.watermark*",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"_cluster",
+								"settings"
+							],
+							"query": [
+								{
+									"key": "include_defaults",
+									"value": "true"
+								},
+								{
+									"key": "filter_path",
+									"value": "*.cluster.routing.allocation.disk.watermark*"
+								}
+							]
+						},
+						"description": "Inspects cluster routing allocation disk watermark thresholds (low 85%, high 90%, flood_stage 95%)."
+					},
+					"response": []
+				},
+				{
+					"name": "5.5 Check Read-Only Block on Indices",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/*/_settings?filter_path=*.settings.index.blocks.read_only_allow_delete",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"*",
+								"_settings"
+							],
+							"query": [
+								{
+									"key": "filter_path",
+									"value": "*.settings.index.blocks.read_only_allow_delete"
+								}
+							]
+						},
+						"description": "Checks if any index is currently blocked in read-only mode due to reaching the 95% flood-stage disk watermark."
+					},
+					"response": []
+				}
+			]
 		}
 	]
 }

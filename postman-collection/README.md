@@ -30,6 +30,13 @@ A comprehensive Postman Collection (v2.1.0) to test, manage, and query your AWS 
 * `POST 4.3 - Range Query Search`: Filters documents by latency threshold (`latency_ms` between 50 and 200).
 * `POST 4.4 - Metrics Aggregation`: Calculates average latency and groups document counts by `status`.
 
+### **5. Performance & Resource Monitoring (JVM & Disk)**
+* `GET 5.1 - Node Memory & JVM Heap %`: Tabular overview of Heap % (`heap.percent`), current/max heap, host RAM %, and CPU via `/_cat/nodes`.
+* `GET 5.2 - JVM Garbage Collection & Memory Stats`: Granular JVM stats and GC collectors (`young` & `old` collection counts and pause duration in ms) via `/_nodes/stats/jvm`.
+* `GET 5.3 - Disk Allocation per Node`: Physical disk usage and percentage per node via `/_cat/allocation`.
+* `GET 5.4 - Cluster Disk Watermark Settings`: Inspects cluster thresholds (`low: 85%`, `high: 90%`, `flood_stage: 95%`) via `/_cluster/settings`.
+* `GET 5.5 - Check Read-Only Block on Indices`: Verifies whether any index is currently locked in read-only mode by flood-stage disk protection.
+
 ---
 
 ## 🚀 How to Import and Run in Postman
