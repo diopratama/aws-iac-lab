@@ -152,44 +152,76 @@ resource "aws_security_group" "es_sg" {
   )
 }
 
-# 3. EC2 Cluster Nodes
-resource "aws_instance" "elasticsearch" {
-  count         = var.node_count
-  ami           = data.aws_ami.ubuntu.id
+# 3. AWS Launch Template for Elasticsearch Cluster Nodes
+resource "aws_launch_template" "es_lt" {
+  name_prefix   = "es-node-lt-${var.environment}-"
+  description   = "Launch template for Elasticsearch cluster node (${var.environment})"
+  image_id      = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
 
-  # Distribute nodes across available subnets (round-robin) for multi-AZ fault tolerance
-  subnet_id            = var.subnet_id != null ? var.subnet_id : element(data.aws_subnets.all.ids, count.index)
-  iam_instance_profile = aws_iam_instance_profile.ssm_profile.name
+  iam_instance_profile {
+    name = aws_iam_instance_profile.ssm_profile.name
+  }
 
-  # Enable public IP for outbound internet (Docker pull & SSM agent registration) without NAT Gateway cost.
-  # Security groups block all public ingress ports (zero public attack surface).
-  associate_public_ip_address = true
-  vpc_security_group_ids      = [aws_security_group.es_sg.id]
+  network_interfaces {
+    associate_public_ip_address = true
+    security_groups             = [aws_security_group.es_sg.id]
+  }
 
   # Bootstrap script handles Docker installation, certificates generation, and dynamic peer discovery
-  user_data = templatefile("${path.module}/templates/user-data.sh.tpl", {
+  user_data = base64encode(templatefile("${path.module}/templates/user-data.sh.tpl", {
     node_count   = var.node_count
-    node_index   = count.index
     cluster_name = "es-cluster-${var.environment}"
     es_password  = var.es_password
     es_heap_size = var.es_heap_size
     es_version   = var.es_version
-  })
+  }))
 
   # Root volume: 10GB per node fits within the 30GB AWS Free Tier storage allocation
-  root_block_device {
-    volume_size = var.volume_size
-    volume_type = var.volume_type
-    encrypted   = var.volume_encrypted # Encrypt at rest via KMS
-    kms_key_id  = var.kms_key_arn
+  block_device_mappings {
+    device_name = data.aws_ami.ubuntu.root_device_name
+    ebs {
+      volume_size           = var.volume_size
+      volume_type           = var.volume_type
+      encrypted             = var.volume_encrypted # Encrypt at rest via KMS
+      kms_key_id            = var.kms_key_arn
+      delete_on_termination = true
+    }
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = merge(
+      {
+        Name        = "Elasticsearch-Node-${var.environment}"
+        Cluster     = "es-cluster-${var.environment}"
+        Environment = var.environment
+        ManagedBy   = "Terraform"
+      },
+      var.tags
+    )
+  }
+
+  tag_specifications {
+    resource_type = "volume"
+    tags = merge(
+      {
+        Name        = "Elasticsearch-Disk-${var.environment}"
+        Cluster     = "es-cluster-${var.environment}"
+        Environment = var.environment
+        ManagedBy   = "Terraform"
+      },
+      var.tags
+    )
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 
   tags = merge(
     {
-      Name        = "Elasticsearch-Node-${count.index}-${var.environment}"
-      Cluster     = "es-cluster-${var.environment}"
-      NodeName    = "es-node-${count.index}"
+      Name        = "es-launch-template-${var.environment}"
       Environment = var.environment
       ManagedBy   = "Terraform"
     },
@@ -197,7 +229,60 @@ resource "aws_instance" "elasticsearch" {
   )
 }
 
-# 4. Internal Application Load Balancer (ILB)
+# 4. Auto Scaling Group (ASG) with Automated Rolling Update
+resource "aws_autoscaling_group" "es_asg" {
+  name_prefix         = "es-asg-${var.environment}-"
+  desired_capacity    = var.node_count
+  min_size            = var.node_count
+  max_size            = var.asg_max_size != null ? var.asg_max_size : var.node_count + 1
+  vpc_zone_identifier = var.subnet_ids != null ? var.subnet_ids : data.aws_subnets.all.ids
+
+  # Direct registration to ALB Target Group (replaces static target attachments)
+  target_group_arns = var.enable_ilb ? [aws_lb_target_group.es_tg[0].arn] : []
+
+  # Use ELB health check so ASG monitors the REST API health on port 9200
+  health_check_type         = var.enable_ilb ? "ELB" : "EC2"
+  health_check_grace_period = var.asg_health_check_grace_period
+
+  launch_template {
+    id      = aws_launch_template.es_lt.id
+    version = "$Latest"
+  }
+
+  # Automated rolling updates: replaces nodes one by one with zero downtime
+  instance_refresh {
+    strategy = "Rolling"
+    preferences {
+      min_healthy_percentage = 66
+      instance_warmup        = var.asg_instance_warmup
+    }
+    triggers = ["tag"]
+  }
+
+  lifecycle {
+    create_before_destroy = true
+    ignore_changes        = [target_group_arns]
+  }
+
+  dynamic "tag" {
+    for_each = merge(
+      {
+        Name        = "Elasticsearch-Cluster-${var.environment}"
+        Cluster     = "es-cluster-${var.environment}"
+        Environment = var.environment
+        ManagedBy   = "Terraform"
+      },
+      var.tags
+    )
+    content {
+      key                 = tag.key
+      value               = tag.value
+      propagate_at_launch = true
+    }
+  }
+}
+
+# 5. Internal Application Load Balancer (ILB)
 # Fronts the cluster nodes inside the VPC for unified REST API access (port 9200)
 resource "aws_lb" "es_ilb" {
   count              = var.enable_ilb ? 1 : 0
@@ -246,13 +331,6 @@ resource "aws_lb_target_group" "es_tg" {
     },
     var.tags
   )
-}
-
-resource "aws_lb_target_group_attachment" "es_tga" {
-  count            = var.enable_ilb ? var.node_count : 0
-  target_group_arn = aws_lb_target_group.es_tg[0].arn
-  target_id        = aws_instance.elasticsearch[count.index].id
-  port             = 9200
 }
 
 resource "aws_lb_listener" "es_listener" {

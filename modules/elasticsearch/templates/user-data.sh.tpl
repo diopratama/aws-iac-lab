@@ -24,7 +24,8 @@ apt-get install -y docker-ce docker-ce-cli containerd.io
 # 3. Determine AWS Region and Instance Metadata
 AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region || echo "ap-southeast-3")
 MY_IP=$(hostname -I | awk '{print $1}')
-NODE_NAME="es-node-${node_index}"
+# Generate deterministic node name based on private IP (e.g. es-node-172-31-10-5)
+NODE_NAME="es-node-$(echo "$MY_IP" | tr '.' '-')"
 CLUSTER_NAME="${cluster_name}"
 
 if [ "${node_count}" -le 1 ]; then
@@ -53,12 +54,6 @@ else
   chmod 666 /etc/elasticsearch/certs/elastic-certificates.p12
 
   echo "Polling EC2 tags for cluster peers in cluster $CLUSTER_NAME..."
-  
-  # Build initial master node list (e.g., es-node-0,es-node-1,es-node-2)
-  INITIAL_MASTERS="es-node-0"
-  for i in $(seq 1 $((${node_count} - 1))); do
-    INITIAL_MASTERS="$INITIAL_MASTERS,es-node-$i"
-  done
 
   # Dynamically discover peer private IPs by querying EC2 tags via AWS CLI
   PEER_IPS=""
@@ -78,6 +73,9 @@ else
   if [ -z "$PEER_IPS" ]; then
     PEER_IPS="$MY_IP"
   fi
+
+  # Build initial master node list from discovered peer private IPs (e.g., es-node-172-31-1-10,es-node-172-31-2-20)
+  INITIAL_MASTERS=$(echo "$PEER_IPS" | tr ',' '\n' | while read -r ip; do echo "es-node-$(echo "$ip" | tr '.' '-')"; done | paste -sd "," -)
 
   # Launch Elasticsearch with host networking and transport encryption
   # Note: Host networking is required so nodes bind and publish their real VPC private IP,

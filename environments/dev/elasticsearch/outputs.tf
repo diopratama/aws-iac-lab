@@ -1,16 +1,16 @@
-output "primary_instance_id" {
-  value       = module.elasticsearch.primary_instance_id
-  description = "Primary EC2 Instance ID for SSM connection target"
+output "asg_name" {
+  value       = module.elasticsearch.asg_name
+  description = "Auto Scaling Group name"
 }
 
-output "instance_ids" {
-  value       = module.elasticsearch.instance_ids
-  description = "All EC2 Instance IDs in the cluster"
+output "asg_id" {
+  value       = module.elasticsearch.asg_id
+  description = "Auto Scaling Group ID"
 }
 
-output "instance_private_ips" {
-  value       = module.elasticsearch.instance_private_ips
-  description = "Private IP addresses of all 3 cluster nodes"
+output "launch_template_id" {
+  value       = module.elasticsearch.launch_template_id
+  description = "Launch Template ID for cluster nodes"
 }
 
 output "ilb_dns_name" {
@@ -20,7 +20,7 @@ output "ilb_dns_name" {
 
 output "ssm_connect_command" {
   value       = module.elasticsearch.ssm_connect_command
-  description = "CLI command to open interactive shell session via AWS SSM"
+  description = "CLI command to open interactive shell session via AWS SSM to an active cluster node"
 }
 
 output "ssm_ilb_port_forward_command" {

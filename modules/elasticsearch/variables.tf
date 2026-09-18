@@ -87,3 +87,21 @@ variable "tags" {
   default     = {}
   description = "Additional tags to attach to resources"
 }
+
+variable "asg_max_size" {
+  type        = number
+  default     = null
+  description = "Maximum number of EC2 nodes in the Auto Scaling Group (defaults to node_count + 1 for rolling update headroom)"
+}
+
+variable "asg_health_check_grace_period" {
+  type        = number
+  default     = 300
+  description = "Grace period (seconds) before ASG begins checking instance health after launch"
+}
+
+variable "asg_instance_warmup" {
+  type        = number
+  default     = 300
+  description = "Warmup time (seconds) for instance_refresh before replacing the next instance in rolling updates"
+}
